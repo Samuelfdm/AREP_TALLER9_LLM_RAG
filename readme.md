@@ -271,6 +271,8 @@ LangChain es un framework de código abierto diseñado para desarrollar aplicaci
 - https://en.wikipedia.org/wiki/LangChain - The framework is organized into modules that can be used together or independently. These include components for working with language models, manipulating prompt templates, creating chains...
 ```
 
+![img.png](base.png)
+
 ## Solución de Problemas
 
 ### Problemas Comunes
