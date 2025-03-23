@@ -1,48 +1,53 @@
-# RAG with OpenAI and Pinecone - Implementation Guide
+# RAG con OpenAI y Pinecone - Guía de Implementación
 
-## Project Overview
+## Descripción General del Proyecto
 
-This repository contains a Retrieval-Augmented Generation (RAG) system built using OpenAI's models and the LangChain framework, with Pinecone as the vector database. RAG systems enhance large language model outputs by retrieving relevant information from a knowledge base before generating responses, resulting in more accurate and contextually appropriate answers.
+Este repositorio contiene un sistema de Generación Aumentada por Recuperación (RAG) construido utilizando los modelos de OpenAI y el framework LangChain, con Pinecone como base de datos vectorial. Los sistemas RAG mejoran las salidas de los modelos de lenguaje grandes al recuperar información relevante de una base de conocimientos antes de generar respuestas, resultando en respuestas más precisas y contextualmente apropiadas.
 
-## Architecture
+## Arquitectura
 
 ![arquitectura.png](arquitectura.png)
 
-The RAG system consists of several key components:
+El sistema RAG consta de varios componentes clave:
 
-1. **Document Processing Pipeline**:
-   - Document loading and parsing
-   - Text chunking for optimal embedding
-   - Embedding generation using OpenAI's embedding models
+1. **Pipeline de Procesamiento de Documentos**:
+   - Carga y análisis de documentos
+   - División de texto en fragmentos para embeddings óptimos
+   - Generación de embeddings utilizando modelos de OpenAI
 
-2. **Vector Database (Pinecone)**:
-   - Storage of document embeddings
-   - Fast similarity search capabilities
-   - Scalable vector storage
+2. **Base de Datos Vectorial (Pinecone)**:
+   - Almacenamiento de embeddings de documentos
+   - Capacidades de búsqueda de similitud rápida
+   - Almacenamiento vectorial escalable
 
-3. **Retrieval System**:
-   - Query embedding generation
-   - Similarity search in the vector database
-   - Context retrieval based on relevance
+3. **Sistema de Recuperación**:
+   - Generación de embeddings para consultas
+   - Búsqueda de similitud en la base de datos vectorial
+   - Recuperación de contexto basada en relevancia
 
-4. **Generation System**:
-   - Integration of retrieved context with the original query
-   - Response generation using OpenAI's language models
-   - Answer formatting and presentation
+4. **Sistema de Generación**:
+   - Integración del contexto recuperado con la consulta original
+   - Generación de respuestas utilizando modelos de lenguaje de OpenAI
+   - Formateo y presentación de respuestas
 
-## Prerequisites
+## Requisitos Previos
 
 - Python 3.8+
+- JupyterLab
 - OpenAI API key
 - Pinecone API key
+- LangSmith API key
 - LangChain library
 
-## Installation
+## Instalación
+
+### En la carpeta SOLUTION encontrará la versión final del RAG
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/Samuelfdm/AREP_TALLER9_LLM_RAG.git
    cd AREP_TALLER9_LLM_RAG
+   cd SOLUTION
    ```
 
 2. Create and activate a virtual environment:
@@ -55,186 +60,237 @@ The RAG system consists of several key components:
    ```bash
    pip install -r requirements.txt
    ```
+- Dependencias:
+```
+pip install langchain pinecone-client langchain-pinecone langchain-openai bs4
+pip install -U langchain-community
+%pip install --quiet --upgrade langchain-text-splitters langchain-community langgraph
+```
 
-4. Set up environment variables:
+4. Configurar variables de entorno:
    ```bash
    export OPENAI_API_KEY="your-openai-api-key"
    export PINECONE_API_KEY="your-pinecone-api-key"
    export PINECONE_ENVIRONMENT="your-pinecone-environment"
    ```
-   On Windows, use `set` instead of `export`.
-
-## Project Structure
-
+   En Windows, use `set` en lugar de `export`.
 ```
-rag-openai-pinecone/
-├── data/                      # Sample documents for the knowledge base
-├── notebooks/                 # Jupyter notebooks for exploration
-├── src/
-│   ├── document_processor.py  # Document loading and processing
-│   ├── embeddings.py          # Embedding generation using OpenAI
-│   ├── pinecone_utils.py      # Pinecone vector database utilities
-│   ├── rag_pipeline.py        # Main RAG implementation
-│   └── utils.py               # Utility functions
-├── .env.example               # Example environment variables
-├── main.py                    # Entry point for the application
-├── requirements.txt           # Project dependencies
-└── README.md                  # This file
+os.environ["OPENAI_API_KEY"] = getpass.getpass("Enter API key: ")
+os.environ["PINECONE_API_KEY"] = getpass.getpass("Enter API key: ")
+os.environ["LANGSMITH_API_KEY"] = getpass.getpass("Enter API key: ")
+os.environ["PINECONE_ENVIRONMENT"] = input("Enter API key: ")
 ```
 
-## Usage
+## Uso
 
-### 1. Prepare Your Documents
-
-Place your knowledge base documents in the `data/` directory.
-
-### 2. Process Documents and Create Embeddings
+### 2. Procesar Documentos y Crear Embeddings
 
 ```python
-from src.document_processor import process_documents
-from src.embeddings import create_embeddings
-from src.pinecone_utils import initialize_pinecone, store_embeddings
+import os
+import getpass
+import pinecone
+from langchain.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
 
-# Process documents into chunks
-documents = process_documents("data/")
+# Configurar claves API
+if "OPENAI_API_KEY" not in os.environ:
+    os.environ["OPENAI_API_KEY"] = getpass.getpass("Ingrese su clave API de OpenAI: ")
 
-# Create embeddings
-document_embeddings = create_embeddings(documents)
+if "PINECONE_API_KEY" not in os.environ:
+    os.environ["PINECONE_API_KEY"] = getpass.getpass("Ingrese su clave API de Pinecone: ")
 
-# Initialize Pinecone
-index = initialize_pinecone("my-index")
+if "PINECONE_ENV" not in os.environ:
+    os.environ["PINECONE_ENV"] = input("Ingrese su entorno Pinecone (ej., us-east-1-aws): ")
 
-# Store embeddings in Pinecone
-store_embeddings(index, document_embeddings, documents)
-```
+# Inicializar Pinecone
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+index_name = "langchain-test-index"
 
-### 3. Run RAG Queries
+# Crear índice si no existe
+if index_name not in pc.list_indexes().names():
+    pc.create_index(
+        name=index_name,
+        dimension=3072,  # Dimensión para OpenAI embeddings
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region=os.environ["PINECONE_ENV"])
+    )
 
-```python
-from src.rag_pipeline import RAGPipeline
-
-# Initialize the RAG pipeline
-rag = RAGPipeline()
-
-# Run a query
-response = rag.query("What is the capital of France?")
-print(response)
-```
-
-## Implementation Details
-
-### Document Processing
-
-We use LangChain's document loaders to support various file formats (PDF, TXT, DOCX, etc.). Documents are then split into smaller chunks using a text splitter to optimize for embedding and retrieval.
-
-```python
-from langchain.document_loaders import DirectoryLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-# Load documents
-loader = DirectoryLoader('./data/', glob="**/*.pdf")
+# Cargar documentos (ejemplo con carga web)
+loader = WebBaseLoader(
+    web_paths=("https://en.wikipedia.org/wiki/LangChain",),
+    bs_kwargs=dict(
+        parse_only=bs4.SoupStrainer(["p", "h1", "h2"])
+    ),
+)
 documents = loader.load()
 
-# Split documents into chunks
-text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=200
+# Dividir en fragmentos
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+all_splits = text_splitter.split_documents(documents)
+
+# Generar embeddings
+embedding_function = OpenAIEmbeddings()
+
+# Guardar en Pinecone
+vector_db = PineconeVectorStore.from_documents(all_splits, embedding_function, index_name=index_name)
+```
+
+### 3. Ejecutar Consultas RAG
+
+```python
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+
+# Crear retriever
+retriever = vector_db.as_retriever()
+
+# Inicializar modelo de lenguaje
+llm = ChatOpenAI(model_name="gpt-4o-mini")
+
+# Crear pipeline RAG
+qa_chain = RetrievalQA.from_chain_type(llm, retriever=retriever, return_source_documents=True)
+
+# Realizar consulta
+query = "¿Qué es LangChain y cómo funciona?"
+result = qa_chain(query)
+
+# Mostrar respuesta
+print("\n===== Respuesta Generada =====")
+print(result["result"])
+
+print("\n===== Documentos Fuente =====")
+for doc in result["source_documents"]:
+    print(f"- {doc.metadata['source']} - {doc.page_content[:200]}...")
+```
+
+## Detalles de Implementación
+
+### Procesamiento de Documentos
+
+Utilizamos los cargadores de documentos de LangChain para soportar varios formatos de archivo. Los documentos se dividen en fragmentos más pequeños utilizando un divisor de texto para optimizar el embedding y la recuperación.
+
+```python
+import bs4
+from langchain.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Cargar documentos desde una URL
+loader = WebBaseLoader(
+    web_paths=("https://en.wikipedia.org/wiki/LangChain",),
+    bs_kwargs=dict(
+        parse_only=bs4.SoupStrainer(["p", "h1", "h2"])
+    ),
 )
+documents = loader.load()
+
+# Dividir documentos en fragmentos
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 document_chunks = text_splitter.split_documents(documents)
 ```
 
-### Embedding Generation
+### Generación de Embeddings
 
-OpenAI's embedding models are used to generate vector representations of document chunks.
+Los modelos de embedding de OpenAI se utilizan para generar representaciones vectoriales de los fragmentos de documentos.
 
 ```python
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
-# Initialize the embedding model
+# Inicializar el modelo de embedding
 embeddings = OpenAIEmbeddings()
 
-# Generate embeddings for document chunks
+# Generar embeddings para fragmentos de documentos
 embedded_documents = embeddings.embed_documents([doc.page_content for doc in document_chunks])
 ```
 
-### Vector Database Setup
+### Configuración de Base de Datos Vectorial
 
-Pinecone is used to store and retrieve document embeddings efficiently.
+Pinecone se utiliza para almacenar y recuperar embeddings de documentos de manera eficiente.
 
 ```python
-import pinecone
-from langchain.vectorstores import Pinecone
+from pinecone import Pinecone, ServerlessSpec
+from langchain_pinecone import PineconeVectorStore
 
-# Initialize Pinecone
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
+# Inicializar Pinecone
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+index_name = "langchain-test-index"
 
-# Create index if it doesn't exist
-if "my-index" not in pinecone.list_indexes():
-    pinecone.create_index("my-index", dimension=1536)  # For OpenAI embeddings
+# Crear índice si no existe
+if index_name not in pc.list_indexes().names():
+    pc.create_index(
+        name=index_name,
+        dimension=3072,
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region=os.environ["PINECONE_ENV"])
+    )
 
-# Create vector store
-vectorstore = Pinecone.from_documents(
+# Crear almacén vectorial
+vector_db = PineconeVectorStore.from_documents(
     document_chunks, 
     embeddings, 
-    index_name="my-index"
+    index_name=index_name
 )
 ```
 
-### RAG Pipeline
+### Pipeline RAG
 
-The RAG pipeline combines retrieval and generation to produce enhanced responses.
+El pipeline RAG combina recuperación y generación para producir respuestas mejoradas.
 
 ```python
+from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
-from langchain.llms import OpenAI
 
-# Create retriever
-retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+# Crear retriever
+retriever = vector_db.as_retriever()
 
-# Create LLM
-llm = OpenAI(temperature=0)
+# Crear LLM
+llm = ChatOpenAI(model_name="gpt-4o-mini")
 
-# Create RAG chain
+# Crear cadena RAG
 rag_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
-    retriever=retriever
+    retriever=retriever,
+    return_source_documents=True
 )
 
-# Query the system
-response = rag_chain.run("What is the capital of France?")
+# Consultar el sistema
+result = rag_chain("¿Qué es LangChain?")
 ```
 
-## Example Output
+## SALIDA DEL PROGRAMA
 
 ```
-Query: What are the benefits of RAG systems?
+===== Respuesta Generada =====
+LangChain es un framework de código abierto diseñado para desarrollar aplicaciones impulsadas por modelos de lenguaje grandes (LLMs). Facilita la creación de aplicaciones que combinan LLMs con otras fuentes de datos y capacidades computacionales. LangChain permite a los desarrolladores construir sistemas que pueden recuperar información contextual para mejorar las respuestas de los LLMs, conectándolos con fuentes externas como bases de datos vectoriales y APIs.
 
-Response: Retrieval-Augmented Generation (RAG) systems offer several key benefits:
-
-1. Improved accuracy by grounding responses in specific knowledge sources
-2. Reduced hallucinations compared to standard LLM outputs
-3. Up-to-date information when connected to current knowledge bases
-4. Citations and references to source materials
-5. Better performance on domain-specific questions
+===== Documentos Fuente =====
+- https://en.wikipedia.org/wiki/LangChain - LangChain is an open-source framework designed to simplify the creation of applications using large language models (LLMs). It was developed to assist developers in building context-aware...
+- https://en.wikipedia.org/wiki/LangChain - The framework is organized into modules that can be used together or independently. These include components for working with language models, manipulating prompt templates, creating chains...
 ```
 
-## Troubleshooting
+## Solución de Problemas
 
-### Common Issues
+### Problemas Comunes
 
-1. **OpenAI API Rate Limits**: If you encounter rate limit errors, implement exponential backoff retry logic.
+1. **Límites de Tasa de API de OpenAI**: Si encuentras errores de límite de tasa, implementa una lógica de reintento con retroceso exponencial.
 
-2. **Pinecone Connection Issues**: Verify your Pinecone API key and environment are correctly set.
+2. **Problemas de Conexión con Pinecone**: Verifica que tu clave API de Pinecone y entorno estén correctamente configurados.
 
-3. **Out of Memory Errors**: For large document collections, process them in batches.
+3. **Errores de Memoria Insuficiente**: Para colecciones grandes de documentos, procésalos en lotes.
 
-## Resources
+## Recursos
 
-- [LangChain Documentation](https://python.langchain.com/docs/)
-- [OpenAI API Documentation](https://platform.openai.com/docs/introduction)
-- [Pinecone Documentation](https://docs.pinecone.io/docs/overview)
+- [Documentación de LangChain](https://python.langchain.com/docs/)
+- [Documentación de API de OpenAI](https://platform.openai.com/docs/introduction)
+- [Documentación de Pinecone](https://docs.pinecone.io/docs/overview)
 
-## License
+## Licencia
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Este proyecto está licenciado bajo la Licencia MIT - ver el archivo LICENSE para más detalles.
+
+## Author
+
+Samuel Felipe Díaz Mamanche
